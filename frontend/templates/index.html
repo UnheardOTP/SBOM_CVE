@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SBOM CVE Scanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- Scanline overlay -->
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-bracket">[</span>
+        <span class="logo-text">SBOM<span class="logo-accent">CVE</span></span>
+        <span class="logo-bracket">]</span>
+        <span class="logo-sub">VULNERABILITY INTELLIGENCE</span>
+      </div>
+      <nav class="header-nav">
+        <button class="nav-btn active" data-view="scan">NEW SCAN</button>
+        <button class="nav-btn" data-view="history">SCAN HISTORY</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ── SCAN VIEW ─────────────────────────────────────────── -->
+    <section id="view-scan" class="view active">
+
+      <div class="page-title">
+        <h1>SBOM VULNERABILITY SCAN</h1>
+        <p class="page-subtitle">Upload a SBOM file or enter components manually to identify CVEs via the NVD database.</p>
+      </div>
+
+      <!-- Input Panel -->
+      <div class="input-grid">
+
+        <!-- Company -->
+        <div class="panel" id="panel-company">
+          <div class="panel-header">
+            <span class="panel-label">01 // COMPANY IDENTIFICATION</span>
+          </div>
+          <div class="panel-body">
+            <label class="field-label">Company / Project Name</label>
+            <input type="text" id="company-name" class="field-input" placeholder="e.g. Acme Corp" />
+          </div>
+        </div>
+
+        <!-- Upload -->
+        <div class="panel" id="panel-upload">
+          <div class="panel-header">
+            <span class="panel-label">02 // SBOM FILE UPLOAD</span>
+            <span class="panel-tag">CycloneDX JSON · XML · SPDX JSON · CSV</span>
+          </div>
+          <div class="panel-body">
+            <div class="drop-zone" id="drop-zone">
+              <div class="drop-icon">⬆</div>
+              <p class="drop-text">DROP FILE HERE<br><span class="drop-sub">or click to browse</span></p>
+              <input type="file" id="file-input" accept=".json,.xml,.csv" hidden />
+            </div>
+            <div id="file-selected" class="file-selected hidden"></div>
+          </div>
+        </div>
+
+        <!-- Manual Entry -->
+        <div class="panel" id="panel-manual">
+          <div class="panel-header">
+            <span class="panel-label">03 // MANUAL COMPONENT ENTRY</span>
+          </div>
+          <div class="panel-body">
+            <div class="manual-row">
+              <input type="text" id="m-name" class="field-input" placeholder="Component name (e.g. log4j)" />
+              <input type="text" id="m-version" class="field-input" placeholder="Version (e.g. 2.14.0)" />
+              <input type="text" id="m-ecosystem" class="field-input" placeholder="Ecosystem (e.g. maven)" />
+              <button class="btn-add" id="btn-add-component">ADD</button>
+            </div>
+            <div id="component-list" class="component-list"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Scan Button -->
+      <div class="scan-action">
+        <button class="btn-scan" id="btn-scan">
+          <span class="btn-scan-icon">◈</span>
+          <span id="btn-scan-text">INITIATE SCAN</span>
+        </button>
+        <p class="scan-note">Queries the NIST NVD API in real-time. Large SBOMs may take 30–60 seconds.</p>
+      </div>
+
+      <!-- Progress -->
+      <div id="scan-progress" class="scan-progress hidden">
+        <div class="progress-bar-outer">
+          <div class="progress-bar-inner" id="progress-bar"></div>
+        </div>
+        <p class="progress-label" id="progress-label">Connecting to NVD...</p>
+      </div>
+
+    </section>
+
+    <!-- ── RESULTS VIEW ──────────────────────────────────────── -->
+    <section id="view-results" class="view hidden">
+
+      <div class="results-header">
+        <div>
+          <button class="btn-back" id="btn-back">← NEW SCAN</button>
+          <h2 class="results-title" id="results-company">RESULTS</h2>
+          <p class="results-meta" id="results-meta"></p>
+        </div>
+        <div class="results-summary" id="results-summary"></div>
+      </div>
+
+      <!-- Severity filter bar -->
+      <div class="filter-bar">
+        <span class="filter-label">FILTER:</span>
+        <button class="filter-btn active" data-sev="ALL">ALL</button>
+        <button class="filter-btn" data-sev="CRITICAL">CRITICAL</button>
+        <button class="filter-btn" data-sev="HIGH">HIGH</button>
+        <button class="filter-btn" data-sev="MEDIUM">MEDIUM</button>
+        <button class="filter-btn" data-sev="LOW">LOW</button>
+        <div class="filter-search-wrap">
+          <input type="text" id="cve-search" class="filter-search" placeholder="Search CVE ID or component..." />
+        </div>
+      </div>
+
+      <!-- CVE Table -->
+      <div class="table-wrap">
+        <table class="cve-table" id="cve-table">
+          <thead>
+            <tr>
+              <th>CVE ID</th>
+              <th>COMPONENT</th>
+              <th>VERSION</th>
+              <th>SEVERITY</th>
+              <th>SCORE</th>
+              <th>AFFECTED RANGE</th>
+              <th>PUBLISHED</th>
+              <th>DETAIL</th>
+            </tr>
+          </thead>
+          <tbody id="cve-tbody"></tbody>
+        </table>
+        <div id="no-results" class="no-results hidden">No CVEs match this filter.</div>
+      </div>
+
+    </section>
+
+    <!-- ── HISTORY VIEW ──────────────────────────────────────── -->
+    <section id="view-history" class="view hidden">
+
+      <div class="page-title">
+        <h1>SCAN HISTORY</h1>
+        <p class="page-subtitle">Previously completed vulnerability scans.</p>
+      </div>
+
+      <div class="history-grid" id="history-grid">
+        <div class="loading-msg">Loading scan history...</div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <span>CVE data sourced from the <a href="https://nvd.nist.gov" target="_blank">NIST National Vulnerability Database</a></span>
+    <span class="footer-sep">|</span>
+    <span>SBOM CVE SCANNER v1.0</span>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

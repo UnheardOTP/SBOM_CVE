@@ -1,0 +1,49 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SBOM CVE Scanner — Docker Compose
+#
+# Single self-contained image: MariaDB + FastAPI run inside one container.
+# The named volume keeps your scan history between container restarts.
+#
+# Usage:
+#   docker compose up --build        # first run (builds image)
+#   docker compose up -d             # subsequent runs (detached)
+#   docker compose down              # stop (data persists in volume)
+#   docker compose down -v           # stop + delete all scan data
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  sbom-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sbom-cve-scanner:latest
+    container_name: sbom-cve-scanner
+    ports:
+      - "8002:8000"           # App available at http://localhost:8002
+    volumes:
+      - sbom_db_data:/var/lib/mysql   # Persist scan history
+    environment:
+      # ── Database password (change this!) ────────────────────────────────────
+      DB_PASSWORD: ${DB_PASSWORD:-sbompassword}
+
+      # ── NVD API Key (optional but recommended for higher rate limits) ────────
+      # Register free at: https://nvd.nist.gov/developers/request-an-api-key
+      NVD_API_KEY: ${NVD_API_KEY:-}
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  sbom_db_data:
+    driver: local
