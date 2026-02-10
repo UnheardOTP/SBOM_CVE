@@ -1,3 +1,25 @@
+// ─── Auth Check ────────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const resp = await fetch('/api/me', { credentials: 'include' });
+    if (!resp.ok) {
+      window.location.href = '/login.html';
+      return false;
+    }
+    const user = await resp.json();
+    if (user.force_password_change) {
+      window.location.href = '/change_password.html';
+      return false;
+    }
+    return true;
+  } catch (e) {
+    window.location.href = '/login.html';
+    return false;
+  }
+}
+
+// Run auth check on page load
+checkAuth();
 /**
  * SBOM CVE Scanner — Frontend JS
  * Handles SBOM upload, manual entry, results display, history

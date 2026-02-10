@@ -1,3 +1,100 @@
+from fastapi import Response, Depends, status, Form
+from fastapi.responses import RedirectResponse, JSONResponse
+import bcrypt
+from itsdangerous import URLSafeTimedSerializer, BadSignature
+from typing import Any
+
+# ─── Session Management ─────────────────────────────────────────────
+SECRET_KEY = os.getenv("SESSION_SECRET", "change_this_secret")
+SESSION_COOKIE = "sbom_session"
+serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+def create_session_cookie(user_id: int) -> str:
+    return serializer.dumps({"user_id": user_id})
+
+def get_session_user_id(request: Request) -> int | None:
+    cookie = request.cookies.get(SESSION_COOKIE)
+    if not cookie:
+        return None
+    try:
+        data = serializer.loads(cookie, max_age=60*60*24*7)  # 7 days
+        return data.get("user_id")
+    except BadSignature:
+        return None
+
+def require_auth(request: Request) -> int:
+    user_id = get_session_user_id(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user_id
+
+# ─── User Auth Helpers ─────────────────────────────────────────────
+def get_user_by_username(username: str) -> dict | None:
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_user_by_id(user_id: int) -> dict | None:
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+def set_user_password(user_id: int, new_password: str):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+        cursor.execute("UPDATE users SET password_hash=%s, force_password_change=0 WHERE id=%s", (hash, user_id))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+# ─── Auth Endpoints ───────────────────────────────────────────────
+@app.post("/api/login")
+async def login(response: Response, username: str = Form(...), password: str = Form(...)):
+    user = get_user_by_username(username)
+    if not user or not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):
+        return JSONResponse(status_code=401, content={"detail": "Invalid username or password"})
+    cookie = create_session_cookie(user["id"])
+    resp = JSONResponse({"success": True, "force_password_change": bool(user.get("force_password_change", 0))})
+    resp.set_cookie(SESSION_COOKIE, cookie, httponly=True, max_age=60*60*24*7)
+    return resp
+
+@app.post("/api/logout")
+async def logout(response: Response):
+    resp = JSONResponse({"success": True})
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+@app.post("/api/change-password")
+async def change_password(request: Request, old_password: str = Form(...), new_password: str = Form(...)):
+    user_id = require_auth(request)
+    user = get_user_by_id(user_id)
+    if not user or not bcrypt.checkpw(old_password.encode(), user["password_hash"].encode()):
+        return JSONResponse(status_code=401, content={"detail": "Invalid current password"})
+    set_user_password(user_id, new_password)
+    return {"success": True}
+
+@app.get("/api/me")
+async def get_me(request: Request):
+    user_id = get_session_user_id(request)
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    user = get_user_by_id(user_id)
+    if not user:
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    return {"id": user["id"], "username": user["username"], "force_password_change": bool(user.get("force_password_change", 0))}
 """
 SBOM CVE Scanner - FastAPI Backend
 Queries the NVD API v2 for CVEs matching components from a SBOM.
@@ -321,22 +418,20 @@ async def scan_components(components: list[dict]) -> list[dict]:
 
 
 # ─── DB Helpers ───────────────────────────────────────────────────────────────
-def save_scan(company_name: str, components: list[dict], cves: list[dict]) -> int:
+def save_scan(company_name: str, components: list[dict], cves: list[dict], user_id: int) -> int:
     conn = get_db()
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "INSERT INTO scans (company_name, component_count, cve_count, scan_date) VALUES (%s, %s, %s, %s)",
-            (company_name, len(components), len(cves), datetime.now())
+            "INSERT INTO scans (user_id, company_name, component_count, cve_count, scan_date) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, company_name, len(components), len(cves), datetime.now())
         )
         scan_id = cursor.lastrowid
-
         for comp in components:
             cursor.execute(
                 "INSERT INTO scan_components (scan_id, name, version, ecosystem) VALUES (%s, %s, %s, %s)",
                 (scan_id, comp["name"], comp.get("version", ""), comp.get("ecosystem", ""))
             )
-
         for cve in cves:
             cursor.execute(
                 """INSERT INTO scan_cves
@@ -359,7 +454,6 @@ def save_scan(company_name: str, components: list[dict], cves: list[dict]) -> in
                     cve["last_modified"] or None,
                 )
             )
-
         conn.commit()
         return scan_id
     finally:
@@ -367,12 +461,12 @@ def save_scan(company_name: str, components: list[dict], cves: list[dict]) -> in
         conn.close()
 
 
-def get_scan_history(limit: int = 20) -> list[dict]:
+def get_scan_history(user_id: int, limit: int = 20) -> list[dict]:
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(
-            "SELECT * FROM scans ORDER BY scan_date DESC LIMIT %s", (limit,)
+            "SELECT * FROM scans WHERE user_id = %s ORDER BY scan_date DESC LIMIT %s", (user_id, limit)
         )
         return cursor.fetchall()
     finally:
@@ -411,23 +505,17 @@ async def index(request: Request):
 
 
 @app.post("/api/scan/upload")
-async def scan_upload(
-    file: UploadFile = File(...),
-    company_name: str = "Unknown"
-):
-    """Upload a SBOM file and scan for CVEs."""
+async def scan_upload(request: Request, file: UploadFile = File(...), company_name: str = Form("Unknown")):
+    user_id = require_auth(request)
     content = await file.read()
     try:
         components = auto_parse_sbom(file.filename, content)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse SBOM: {e}")
-
     if not components:
         raise HTTPException(status_code=400, detail="No components found in SBOM file.")
-
     cves = await scan_components(components)
-    scan_id = save_scan(company_name, components, cves)
-
+    scan_id = save_scan(company_name, components, cves, user_id)
     return {
         "scan_id": scan_id,
         "company_name": company_name,
@@ -439,18 +527,15 @@ async def scan_upload(
 
 
 @app.post("/api/scan/manual")
-async def scan_manual(payload: SBOMComponents):
-    """Submit components manually and scan for CVEs."""
+async def scan_manual(request: Request, payload: SBOMComponents):
+    user_id = require_auth(request)
     components = [c.dict() for c in payload.components]
-
     if not components:
         raise HTTPException(status_code=400, detail="No components provided.")
-
     cves = await scan_components(components)
     logger.info(f"[SCAN] scan_components returned {len(cves)} CVEs")
     logger.info(f"[SCAN] First CVE sample: {cves[0] if cves else 'None'}")
-    scan_id = save_scan(payload.company_name, components, cves)
-
+    scan_id = save_scan(payload.company_name, components, cves, user_id)
     return {
         "scan_id": scan_id,
         "company_name": payload.company_name,
@@ -462,10 +547,9 @@ async def scan_manual(payload: SBOMComponents):
 
 
 @app.get("/api/scans")
-async def list_scans():
-    """Get recent scan history."""
-    scans = get_scan_history()
-    # Convert datetime objects to strings
+async def list_scans(request: Request):
+    user_id = require_auth(request)
+    scans = get_scan_history(user_id)
     for s in scans:
         if isinstance(s.get("scan_date"), datetime):
             s["scan_date"] = s["scan_date"].isoformat()
@@ -473,12 +557,14 @@ async def list_scans():
 
 
 @app.get("/api/scans/{scan_id}")
-async def get_scan(scan_id: int):
-    """Get full details for a specific scan."""
+async def get_scan(scan_id: int, request: Request):
+    user_id = require_auth(request)
     detail = get_scan_detail(scan_id)
     if not detail:
         raise HTTPException(status_code=404, detail="Scan not found.")
     scan = detail["scan"]
+    if scan["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if isinstance(scan.get("scan_date"), datetime):
         scan["scan_date"] = scan["scan_date"].isoformat()
     return detail

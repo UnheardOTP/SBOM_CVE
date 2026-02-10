@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - SBOM CVE Scanner</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .login-container { max-width: 400px; margin: 80px auto; background: var(--bg-panel); border: 1px solid var(--border); padding: 32px 28px; border-radius: 6px; box-shadow: 0 2px 16px #0002; }
+    .login-title { font-family: var(--cond); font-size: 24px; font-weight: 700; color: var(--green); margin-bottom: 18px; text-align: center; }
+    .login-form { display: flex; flex-direction: column; gap: 18px; }
+    .login-label { font-family: var(--cond); font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .login-input { width: 100%; padding: 10px 14px; font-size: 15px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 2px; font-family: var(--mono); }
+    .login-input:focus { border-color: var(--green-dim); outline: none; }
+    .login-btn { background: var(--green); color: #000; font-family: var(--cond); font-size: 15px; font-weight: 700; letter-spacing: 0.1em; padding: 12px 0; border: none; border-radius: 2px; cursor: pointer; transition: background 0.2s; }
+    .login-btn:hover { background: var(--green-dim); }
+    .login-error { color: var(--red); font-size: 13px; text-align: center; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-title">SBOM CVE Scanner Login</div>
+    <form class="login-form" id="login-form">
+      <div>
+        <label class="login-label" for="username">Username</label>
+        <input class="login-input" type="text" id="username" name="username" required autocomplete="username" />
+      </div>
+      <div>
+        <label class="login-label" for="password">Password</label>
+        <input class="login-input" type="password" id="password" name="password" required autocomplete="current-password" />
+      </div>
+      <button class="login-btn" type="submit">Login</button>
+      <div class="login-error" id="login-error" style="display:none;"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errorDiv = document.getElementById('login-error');
+      errorDiv.style.display = 'none';
+      try {
+        const resp = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        });
+        if (resp.ok) {
+          window.location.href = '/';
+        } else {
+          const data = await resp.json();
+          errorDiv.textContent = data.detail || 'Login failed.';
+          errorDiv.style.display = 'block';
+        }
+      } catch (err) {
+        errorDiv.textContent = 'Network error.';
+        errorDiv.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

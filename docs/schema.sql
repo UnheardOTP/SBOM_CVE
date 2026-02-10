@@ -9,17 +9,37 @@ CREATE DATABASE IF NOT EXISTS sbom_cve
 
 USE sbom_cve;
 
+
+-- ─── Users ───────────────────────────────────────────────────────
+-- User accounts for login and scan separation
+
+CREATE TABLE IF NOT EXISTS users (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username        VARCHAR(64)     NOT NULL UNIQUE,
+    password_hash   VARCHAR(255)    NOT NULL,
+    force_password_change BOOLEAN    NOT NULL DEFAULT 0,
+    created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- Insert default admin/admin user (bcrypt hash for 'admin')
+INSERT INTO users (username, password_hash, force_password_change)
+VALUES ('admin', '$2b$12$uG6QwQnQwQnQwQnQwQnQOeQnQwQnQwQnQwQnQwQnQwQnQwQnQwQnQ', 1)
+ON DUPLICATE KEY UPDATE username=username;
+
 -- ─── Scans ────────────────────────────────────────────────────────
 -- Top-level record for each scan run
 CREATE TABLE IF NOT EXISTS scans (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT UNSIGNED    NOT NULL,
     company_name    VARCHAR(255)    NOT NULL DEFAULT 'Unknown',
     component_count INT UNSIGNED    NOT NULL DEFAULT 0,
     cve_count       INT UNSIGNED    NOT NULL DEFAULT 0,
     scan_date       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     INDEX idx_company   (company_name),
-    INDEX idx_scan_date (scan_date)
+    INDEX idx_scan_date (scan_date),
+    INDEX idx_scan_user_id (user_id),
+    CONSTRAINT fk_scan_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ─── Scan Components ─────────────────────────────────────────────
