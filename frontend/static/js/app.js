@@ -45,6 +45,7 @@ const els = {
 };
 
 // ─── View Switching ───────────────────────────────────────────────────────────
+
 function showView(name) {
   Object.entries(views).forEach(([k, el]) => {
     el.classList.toggle('active', k === name);
@@ -53,6 +54,18 @@ function showView(name) {
     btn.classList.toggle('active', btn.dataset.view === name);
   });
   if (name === 'history') loadHistory();
+  if (name === 'scan') {
+    // Clear manual components
+    state.manualComponents = [];
+    renderComponentList();
+    // Clear file input
+    els.fileInput.value = '';
+    els.fileInput._selectedFile = null;
+    els.fileSelected.textContent = '';
+    els.fileSelected.classList.add('hidden');
+    // Optionally clear company name
+    // els.companyName.value = '';
+  }
 }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {

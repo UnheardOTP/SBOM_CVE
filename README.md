@@ -115,6 +115,8 @@ NVD_API_KEY=your_key docker compose up
 
 ## Roadmap
 
+- [ ] IAM
+- [ ] HTTPS support
 - [ ] Export results as PDF or CSV
 - [ ] Email alerts for Critical CVEs
 - [ ] SBOM diff - compare two scans
