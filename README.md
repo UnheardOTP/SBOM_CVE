@@ -71,6 +71,65 @@ docker compose up
 ```
 
 These variables are required for proper operation and security. You can override them for testing or deployment as needed.
+
+## Database Persistence & Data Volumes
+
+**Your scan history and all database data are automatically persisted using a Docker named volume.**
+
+By default, the following is in your `docker-compose.yml`:
+
+```yaml
+        volumes:
+            - sbom_db_data:/var/lib/mysql   # Persist scan history
+...
+volumes:
+    sbom_db_data:
+        driver: local
+```
+
+This means your MariaDB data is stored outside the container, so you can rebuild, update, or restart containers without losing your data.
+
+**To keep your data after an update:**
+
+- Just run `docker compose up --build` or `docker compose up -d` as usual. Your data will persist.
+- Only if you run `docker compose down -v` will your data be deleted.
+
+**To back up your data volume:**
+
+```sh
+docker run --rm -v sbom_db_data:/var/lib/mysql -v %cd%:/backup busybox tar czf /backup/db_backup.tar.gz /var/lib/mysql
+```
+*(On Linux/macOS, replace `%cd%` with `$(pwd)`)*
+
+**To restore:**
+
+1. Stop the database container.
+2. Extract the backup into the volume using a similar command.
+
+### Mapping a Host Directory (Advanced)
+
+If you want to store the database on your host filesystem (for easier manual backup or inspection), change the `volumes` section in `docker-compose.yml`:
+
+```yaml
+        volumes:
+            - ./my-db-data:/var/lib/mysql
+```
+
+This will store all MariaDB data in the `my-db-data` folder in your project directory.
+
+**Start the container with mapped drive:**
+
+```sh
+docker compose up --build
+```
+
+Or, for a one-off run (overriding the volume):
+
+```sh
+docker run -v /absolute/path/to/my-db-data:/var/lib/mysql ... sbom-cve-scanner:latest
+```
+
+---
 ## Quick Start (Docker)
 
 ```bash
