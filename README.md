@@ -1,11 +1,76 @@
 # SBOM CVE Scanner
-
 A security-focused web application that scans a company's Software Bill of Materials (SBOM) against the NIST National Vulnerability Database (NVD) to identify known CVEs.
 
-**Self-contained Docker image** — MariaDB and FastAPI run together in a single container. No external database required.
+## Required Environment Variables
 
----
+The application requires several environment variables for database and admin user configuration:
 
+| Variable         | Purpose                        | Example Value           |
+|------------------|-------------------------------|------------------------|
+| DB_HOST          | Database host                  | localhost              |
+| DB_PORT          | Database port                  | 3306                   |
+| DB_NAME          | Database name                  | sbom_cve               |
+| DB_USER          | Database user                  | sbomuser               |
+| DB_PASSWORD      | Database password              | sbompassword           |
+| ADMIN_USER       | Default admin username         | admin                  |
+| ADMIN_PASSWORD   | Default admin password         | admin                  |
+| SESSION_SECRET   | Session cookie secret          | your_super_secret_key  |
+| NVD_API_KEY      | NVD API key (optional)         | your_nvd_api_key       |
+
+### How to assign variables
+
+**Option 1: .env file (recommended)**
+
+Create a `.env` file in your project directory:
+
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=sbom_cve
+DB_USER=sbomuser
+DB_PASSWORD=sbompassword
+ADMIN_USER=admin
+ADMIN_PASSWORD=admin
+SESSION_SECRET=your_super_secret_key
+NVD_API_KEY=your_nvd_api_key
+```
+Docker Compose will automatically load these values.
+
+**Option 2: Inline with the command**
+
+Set variables inline before running Docker Compose:
+
+```
+DB_USER=sbomuser DB_PASSWORD=sbompassword ADMIN_USER=admin ADMIN_PASSWORD=admin SESSION_SECRET=your_super_secret_key NVD_API_KEY=your_nvd_api_key docker compose up
+```
+
+**Option 3: Export in your shell session**
+
+Export variables in your shell, then run Docker Compose:
+
+```
+export DB_USER=sbomuser
+export DB_PASSWORD=sbompassword
+export ADMIN_USER=admin
+export ADMIN_PASSWORD=admin
+export SESSION_SECRET=your_super_secret_key
+export NVD_API_KEY=your_nvd_api_key
+docker compose up
+```
+
+For Windows Command Prompt, use `set` for each variable:
+
+```
+set DB_USER=sbomuser
+set DB_PASSWORD=sbompassword
+set ADMIN_USER=admin
+set ADMIN_PASSWORD=admin
+set SESSION_SECRET=your_super_secret_key
+set NVD_API_KEY=your_nvd_api_key
+docker compose up
+```
+
+These variables are required for proper operation and security. You can override them for testing or deployment as needed.
 ## Quick Start (Docker)
 
 ```bash

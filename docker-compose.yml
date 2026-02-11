@@ -25,11 +25,21 @@ services:
     volumes:
       - sbom_db_data:/var/lib/mysql   # Persist scan history
     environment:
-      # ── Database password (change this!) ────────────────────────────────────
+      # ── Database connection ─────────────────────────────
+      DB_HOST: ${DB_HOST:-localhost}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-sbom_cve}
+      DB_USER: ${DB_USER:-sbomuser}
       DB_PASSWORD: ${DB_PASSWORD:-sbompassword}
 
-      # ── NVD API Key (optional but recommended for higher rate limits) ────────
-      # Register free at: https://nvd.nist.gov/developers/request-an-api-key
+      # ── Admin user for application ──────────────────────
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+
+      # ── Session secret ─────────────────────────────────
+      SESSION_SECRET: ${SESSION_SECRET:-your_super_secret_key}
+
+      # ── NVD API Key (optional but recommended) ─────────
       NVD_API_KEY: ${NVD_API_KEY:-}
     restart: unless-stopped
     logging:

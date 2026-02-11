@@ -1,8 +1,52 @@
-from fastapi import Response, Depends, status, Form
-from fastapi.responses import RedirectResponse, JSONResponse
+
+
+# --- Core Imports and App Initialization ---
+import os
+import logging
+from fastapi import FastAPI, Response, Depends, status, Form, Request, UploadFile, File, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import bcrypt
 from itsdangerous import URLSafeTimedSerializer, BadSignature
-from typing import Any
+from typing import Any, Optional
+from pydantic import BaseModel
+import httpx
+import asyncio
+import json
+import xml.etree.ElementTree as ET
+import csv
+import io
+from datetime import datetime, timedelta
+import mysql.connector
+from mysql.connector import Error
+from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+app = FastAPI(title="SBOM CVE Scanner", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ─── Static files & templates ────────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "..", "frontend")
+
+app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
 
 # ─── Session Management ─────────────────────────────────────────────
 SECRET_KEY = os.getenv("SESSION_SECRET", "change_this_secret")
@@ -60,7 +104,20 @@ def set_user_password(user_id: int, new_password: str):
         cursor.close()
         conn.close()
 
-# ─── Auth Endpoints ───────────────────────────────────────────────
+
+# ─── Routes ───────────────────────────────────────────────────────────────────
+@app.get("/login.html", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.get("/change_password.html", response_class=HTMLResponse)
+async def change_password_page(request: Request):
+    return templates.TemplateResponse("change_password.html", {"request": request})
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
 @app.post("/api/login")
 async def login(response: Response, username: str = Form(...), password: str = Form(...)):
     user = get_user_by_username(username)
@@ -95,55 +152,51 @@ async def get_me(request: Request):
     if not user:
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     return {"id": user["id"], "username": user["username"], "force_password_change": bool(user.get("force_password_change", 0))}
-"""
-SBOM CVE Scanner - FastAPI Backend
-Queries the NVD API v2 for CVEs matching components from a SBOM.
-"""
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-import httpx
-import asyncio
-import json
-import xml.etree.ElementTree as ET
-import csv
-import io
-import os
-import logging
-from typing import Optional
-from datetime import datetime, timedelta
-import mysql.connector
-from mysql.connector import Error
-from dotenv import load_dotenv
+@app.post("/api/scan/upload")
+async def scan_upload(request: Request, file: UploadFile = File(...), company_name: str = Form("Unknown")):
+    user_id = require_auth(request)
+    content = await file.read()
+    try:
+        components = auto_parse_sbom(file.filename, content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse SBOM: {e}")
+    if not components:
+        raise HTTPException(status_code=400, detail="No components found in SBOM file.")
+    cves = await scan_components(components)
+    scan_id = save_scan(company_name, components, cves, user_id)
+    return {
+        "scan_id": scan_id,
+        "company_name": company_name,
+        "component_count": len(components),
+        "cve_count": len(cves),
+        "components": components,
+        "cves": cves,
+    }
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
-load_dotenv()
+@app.get("/api/scans")
+async def list_scans(request: Request):
+    user_id = require_auth(request)
+    scans = get_scan_history(user_id)
+    for s in scans:
+        if isinstance(s.get("scan_date"), datetime):
+            s["scan_date"] = s["scan_date"].isoformat()
+    return {"scans": scans}
 
-app = FastAPI(title="SBOM CVE Scanner", version="1.0.0")
+@app.get("/api/scans/{scan_id}")
+async def get_scan(scan_id: int, request: Request):
+    user_id = require_auth(request)
+    detail = get_scan_detail(scan_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Scan not found.")
+    scan = detail["scan"]
+    if scan["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if isinstance(scan.get("scan_date"), datetime):
+        scan["scan_date"] = scan["scan_date"].isoformat()
+    return detail
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ─── Static files & templates ────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "..", "frontend")
-
-app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
-templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
 
 # ─── DB Connection ────────────────────────────────────────────────────────────
 def get_db():
@@ -159,6 +212,30 @@ def get_db():
         return conn
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")
+
+
+# ─── Ensure Default Admin User ───────────────────────────────────────────────
+def ensure_default_admin():
+    admin_user = os.getenv("ADMIN_USER", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "admin")
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT * FROM users WHERE username = %s", (admin_user,))
+        user = cursor.fetchone()
+        if not user:
+            hash = bcrypt.hashpw(admin_pass.encode(), bcrypt.gensalt()).decode()
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, force_password_change) VALUES (%s, %s, %s)",
+                (admin_user, hash, 1)
+            )
+            conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+# Call on startup
+ensure_default_admin()
 
 
 # ─── NVD API ─────────────────────────────────────────────────────────────────
@@ -178,6 +255,26 @@ class Component(BaseModel):
 class SBOMComponents(BaseModel):
     components: list[Component]
     company_name: Optional[str] = "Unknown"
+
+# ─── scan_manual Route ──────────────────────────────────────────────────────
+@app.post("/api/scan/manual")
+async def scan_manual(request: Request, payload: SBOMComponents):
+    user_id = require_auth(request)
+    components = [c.dict() for c in payload.components]
+    if not components:
+        raise HTTPException(status_code=400, detail="No components provided.")
+    cves = await scan_components(components)
+    logger.info(f"[SCAN] scan_components returned {len(cves)} CVEs")
+    logger.info(f"[SCAN] First CVE sample: {cves[0] if cves else 'None'}")
+    scan_id = save_scan(payload.company_name, components, cves, user_id)
+    return {
+        "scan_id": scan_id,
+        "company_name": payload.company_name,
+        "component_count": len(components),
+        "cve_count": len(cves),
+        "components": components,
+        "cves": cves,
+    }
 
 
 # ─── SBOM Parsers ─────────────────────────────────────────────────────────────
@@ -499,6 +596,14 @@ def get_scan_detail(scan_id: int) -> dict:
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
+@app.get("/login.html", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.get("/change_password.html", response_class=HTMLResponse)
+async def change_password_page(request: Request):
+    return templates.TemplateResponse("change_password.html", {"request": request})
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -524,27 +629,6 @@ async def scan_upload(request: Request, file: UploadFile = File(...), company_na
         "components": components,
         "cves": cves,
     }
-
-
-@app.post("/api/scan/manual")
-async def scan_manual(request: Request, payload: SBOMComponents):
-    user_id = require_auth(request)
-    components = [c.dict() for c in payload.components]
-    if not components:
-        raise HTTPException(status_code=400, detail="No components provided.")
-    cves = await scan_components(components)
-    logger.info(f"[SCAN] scan_components returned {len(cves)} CVEs")
-    logger.info(f"[SCAN] First CVE sample: {cves[0] if cves else 'None'}")
-    scan_id = save_scan(payload.company_name, components, cves, user_id)
-    return {
-        "scan_id": scan_id,
-        "company_name": payload.company_name,
-        "component_count": len(components),
-        "cve_count": len(cves),
-        "components": components,
-        "cves": cves,
-    }
-
 
 @app.get("/api/scans")
 async def list_scans(request: Request):

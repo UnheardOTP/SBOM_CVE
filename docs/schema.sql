@@ -10,6 +10,14 @@ CREATE DATABASE IF NOT EXISTS sbom_cve
 USE sbom_cve;
 
 
+-- ─── DB User Creation (for Docker/automation) ───────────────
+-- These can use Docker env substitution or manual editing before running.
+-- Replace ${DB_USER} and ${DB_PASSWORD} with your values or use Docker entrypoint substitution.
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON sbom_cve.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+
+
 -- ─── Users ───────────────────────────────────────────────────────
 -- User accounts for login and scan separation
 
@@ -21,10 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- Insert default admin/admin user (bcrypt hash for 'admin')
-INSERT INTO users (username, password_hash, force_password_change)
-VALUES ('admin', '$2b$12$uG6QwQnQwQnQwQnQwQnQOeQnQwQnQwQnQwQnQwQnQwQnQwQnQwQnQ', 1)
-ON DUPLICATE KEY UPDATE username=username;
+
 
 -- ─── Scans ────────────────────────────────────────────────────────
 -- Top-level record for each scan run
