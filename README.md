@@ -79,8 +79,8 @@ These variables are required for proper operation and security. You can override
 By default, the following is in your `docker-compose.yml`:
 
 ```yaml
-volumes:
-    sbom_db_data:/var/lib/mysql   # Persist scan history
+        volumes:
+            - sbom_db_data:/var/lib/mysql   # Persist scan history
 ...
 volumes:
     sbom_db_data:
@@ -111,8 +111,8 @@ docker run --rm -v sbom_db_data:/var/lib/mysql -v %cd%:/backup busybox tar czf /
 If you want to store the database on your host filesystem (for easier manual backup or inspection), change the `volumes` section in `docker-compose.yml`:
 
 ```yaml
-volumes:
-    ./my-db-data:/var/lib/mysql
+        volumes:
+            - ./my-db-data:/var/lib/mysql
 ```
 
 This will store all MariaDB data in the `my-db-data` folder in your project directory.
